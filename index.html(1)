@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IMDG Hazmat & UN Number Safety Dashboard</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            500: '#0284c7',
+                            600: '#0369a1',
+                            700: '#075985',
+                            800: '#0c4a6e',
+                            900: '#0f172a',
+                        },
+                        hazard: {
+                            explosive: '#ef4444',
+                            flammable: '#f97316',
+                            toxic: '#8b5cf6',
+                            corrosive: '#ec4899',
+                            gas: '#3b82f6',
+                            misc: '#64748b'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'Segoe UI', 'Tahoma', 'Geneva', 'Verdana', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- FontAwesome & Lucide Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- PapaParse for CSV Upload -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <!-- SheetJS for Excel files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+        
+        @media print {
+            .no-print {
+                display: none !important;
+            }
+            body {
+                background: white !important;
+                color: black !important;
+            }
+            .print-card {
+                border: 1px solid #ccc !important;
+                box-shadow: none !important;
+                color: black !important;
+                background: white !important;
+            }
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased flex flex-col selection:bg-sky-500 selection:text-white">
+
+    <!-- Top Navigation Header -->
+    <header class="bg-slate-900/80 backdrop-blur border-b border-slate-800 sticky top-0 z-50 no-print">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-wrap items-center justify-between gap-4">
+            
+            <!-- Logo & Title -->
+            <div class="flex items-center space-x-3 space-x-reverse">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/20">
+                    <i class="fa-solid font-bold fa-triangle-exclamation text-white text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+                        <span id="txt-app-title">دليل المواد الخطرة (IMDG Code / UN)</span>
+                    </h1>
+                    <p class="text-xs text-slate-400" id="txt-app-subtitle">نظام الطوارئ والوقاية والاستجابة للحوادث البحرية</p>
+                </div>
+            </div>
+
+            <!-- Header Controls & Actions -->
+            <div class="flex items-center gap-3">
+                <!-- Language Toggle -->
+                <button onclick="toggleLanguage()" class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition border border-slate-700">
+                    <i class="fa-solid fa-globe text-sky-400"></i>
+                    <span id="lang-btn-text">English</span>
+                </button>
+
+                <!-- Data File Import Button -->
+                <label class="cursor-pointer flex items-center gap-2 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold transition shadow-md shadow-sky-600/20">
+                    <i class="fa-solid fa-file-excel"></i>
+                    <span id="txt-upload-btn">استيراد شيت (Excel/CSV)</span>
+                    <input type="file" id="excel-file-input" accept=".csv, .xlsx, .xls" class="hidden" onchange="handleFileUpload(event)">
+                </label>
+
+                <!-- Reset Dataset -->
+                <button onclick="resetToDefaultData()" title="استعادة البيانات الافتراضية" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition border border-slate-700">
+                    <i class="fa-solid fa-rotate-right"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+        <!-- Search Bar Section -->
+        <section class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-xl relative overflow-hidden no-print">
+            <div class="absolute -right-10 -bottom-10 w-48 h-48 bg-sky-500/10 rounded-full blur-3xl pointer-events-none"></div>
+            
+            <label id="lbl-search" class="block text-sm font-semibold text-slate-300 mb-2">ابحث برقم الأمم المتحدة (UN Number) أو اسم المادة الكيميائية:</label>
+            
+            <div class="flex flex-col sm:flex-row gap-3">
+                <div class="relative flex-grow">
+                    <div class="absolute inset-y-0 start-0 flex items-center ps-4 pointer-events-none text-slate-400">
+                        <i class="fa-solid fa-magnifying-glass text-lg"></i>
+                    </div>
+                    <input type="text" id="search-input" oninput="handleSearch()" placeholder="مثال: 1203, 1230, Gasoline, Methanol..." 
+                           class="w-full ps-11 pe-4 py-3 bg-slate-950 border border-slate-700 rounded-xl focus:ring-2 focus:ring-sky-500 focus:border-transparent text-slate-100 placeholder-slate-500 text-base transition outline-none">
+                    <button onclick="clearSearch()" id="clear-btn" class="hidden absolute inset-y-0 end-0 flex items-center pe-4 text-slate-400 hover:text-white">
+                        <i class="fa-solid fa-xmark text-lg"></i>
+                    </button>
+                </div>
+                
+                <button onclick="executeSearch()" class="px-6 py-3 bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white font-semibold rounded-xl shadow-lg shadow-sky-600/25 transition flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-search"></i>
+                    <span id="btn-search-text">بحث مفصل</span>
+                </button>
+            </div>
+
+            <!-- Quick Preset Chips -->
+            <div class="mt-4 flex items-center gap-2 flex-wrap">
+                <span class="text-xs text-slate-400 font-medium" id="txt-quick-search">بحث سريع:</span>
+                <div class="flex flex-wrap gap-1.5" id="preset-chips">
+                    <!-- Dynamic chips populated via JS -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Main Display Content Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+            <!-- Left Panel: Search Results Details (8 cols) -->
+            <div class="lg:col-span-8 space-y-6">
+                
+                <!-- Active Hazmat Card -->
+                <div id="hazmat-card" class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative print-card">
+                    
+                    <!-- Top Badge & Actions -->
+                    <div class="flex flex-wrap items-start justify-between gap-4 border-b border-slate-800 pb-5">
+                        <div>
+                            <div class="flex items-center gap-3 mb-2">
+                                <span id="card-un" class="px-3 py-1 rounded-md bg-sky-500/20 text-sky-400 font-mono text-xl font-black border border-sky-500/30">
+                                    UN ----
+                                </span>
+                                <span id="card-class-badge" class="px-3 py-1 rounded-md bg-orange-500/20 text-orange-400 text-xs font-bold border border-orange-500/30">
+                                    Class -
+                                </span>
+                            </div>
+                            <h2 id="card-name" class="text-2xl font-black text-white tracking-wide">اختر أو ابحث عن مادة خطرة</h2>
+                            <p id="card-subrisk" class="text-sm text-slate-400 mt-1">المخاطر الفرعية / مجموعات التعبئة والتغليف</p>
+                        </div>
+
+                        <!-- Print & Quick Actions -->
+                        <div class="flex items-center gap-2 no-print">
+                            <button onclick="window.print()" title="طباعة البطاقة" class="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition border border-slate-700">
+                                <i class="fa-solid fa-print"></i>
+                            </button>
+                            <button onclick="exportCurrentToCSV()" title="تصدير كـ CSV" class="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition border border-slate-700">
+                                <i class="fa-solid fa-file-csv"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Detailed Content Sections Grid -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mt-6">
+                        
+                        <!-- 1. Hazards & Precautions (طرق التفاعل والوقاية) -->
+                        <div class="bg-slate-950/60 border border-slate-800/80 rounded-xl p-4 space-y-2">
+                            <div class="flex items-center gap-2 text-amber-400 font-bold text-sm">
+                                <i class="fa-solid fa-shield-halved text-base"></i>
+                                <span id="hdr-precautions">طرق التفاعل والوقاية من الحريق</span>
+                            </div>
+                            <p id="card-precautions" class="text-xs text-slate-300 leading-relaxed min-h-[60px]">
+                                اختر مادة كيميائية لعرض معلومات الوقاية وتدابير السلامة الخاصة بها.
+                            </p>
+                        </div>
+
+                        <!-- 2. First Aid & Injuries (التعامل مع الإصابات) -->
+                        <div class="bg-slate-950/60 border border-slate-800/80 rounded-xl p-4 space-y-2">
+                            <div class="flex items-center gap-2 text-rose-400 font-bold text-sm">
+                                <i class="fa-solid fa-user-nurse text-base"></i>
+                                <span id="hdr-firstaid">الإسعافات الأولية وطريقة التعامل مع الإصابات</span>
+                            </div>
+                            <p id="card-firstaid" class="text-xs text-slate-300 leading-relaxed min-h-[60px]">
+                                سيتم عرض الإجراءات الفورية اللازمة لإسعاف المصابين عند التعرض أو الاستنشاق أو الملامسة.
+                            </p>
+                        </div>
+
+                        <!-- 3. PPE / Protective Equipment (معدات الوقاية الشخصية) -->
+                        <div class="bg-slate-950/60 border border-slate-800/80 rounded-xl p-4 space-y-2">
+                            <div class="flex items-center gap-2 text-sky-400 font-bold text-sm">
+                                <i class="fa-solid fa-mask-ventilator text-base"></i>
+                                <span id="hdr-ppe">معدات الوقاية الشخصية المطلوب ارتداؤها (PPE)</span>
+                            </div>
+                            <p id="card-ppe" class="text-xs text-slate-300 leading-relaxed min-h-[60px]">
+                                معدات الحماية الموصى بها لمناولة الشحنة والتجول بالقرب منها.
+                            </p>
+                        </div>
+
+                        <!-- 4. Emergency Spill / Leak (طريقة التعامل مع التسرب والانسكاب) -->
+                        <div class="bg-slate-950/60 border border-slate-800/80 rounded-xl p-4 space-y-2">
+                            <div class="flex items-center gap-2 text-emerald-400 font-bold text-sm">
+                                <i class="fa-solid fa-biohazard text-base"></i>
+                                <span id="hdr-spill">طريقة التعامل مع تسرب المادة (Spill Handling)</span>
+                            </div>
+                            <p id="card-spill" class="text-xs text-slate-300 leading-relaxed min-h-[60px]">
+                                خطوات العزل والاحتواء وإخلاء المكان أثناء حالات التسرب أو الانسكاب البحري/البري.
+                            </p>
+                        </div>
+
+                    </div>
+
+                    <!-- IMDG Technical Details Footer Bar -->
+                    <div class="mt-6 pt-4 border-t border-slate-800 flex flex-wrap items-center justify-between text-xs text-slate-400 gap-4">
+                        <div class="flex items-center gap-4">
+                            <span><strong id="lbl-pg">مجموعة التعبئة (Packing Group):</strong> <span id="card-pg" class="text-slate-200">--</span></span>
+                            <span><strong id="lbl-emg-guide">دليل الطوارئ (EmS/ERG):</strong> <span id="card-ems" class="text-slate-200">--</span></span>
+                        </div>
+                        <div class="text-slate-500 font-mono text-[11px]">
+                            IMDG Code Code / Solas Verified
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>
+
+            <!-- Right Panel: Full Hazmat Database / Table View (4 cols / full on mobile) -->
+            <div class="lg:col-span-4 space-y-4 no-print">
+                
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-3">
+                    <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+                        <div class="flex items-center gap-2 font-bold text-sm text-slate-200">
+                            <i class="fa-solid fa-database text-sky-400"></i>
+                            <span id="txt-records-title">جدول المواد المتاحة</span>
+                        </div>
+                        <span id="records-count" class="px-2 py-0.5 rounded-full bg-slate-800 text-xs font-mono text-slate-400">
+                            0 مواد
+                        </span>
+                    </div>
+
+                    <!-- Scrollable List of Materials -->
+                    <div id="hazmat-list" class="space-y-2 max-h-[520px] overflow-y-auto pe-1">
+                        <!-- Populated dynamically via JS -->
+                    </div>
+
+                    <!-- Export Dataset Action -->
+                    <button onclick="exportAllToCSV()" class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl text-xs font-semibold transition border border-slate-700 flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-download"></i>
+                        <span id="btn-export-all">تصدير جميع البيانات لملف CSV</span>
+                    </button>
+                </div>
+
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-slate-900 border-t border-slate-800 py-4 mt-8 no-print text-center text-xs text-slate-500">
+        <div class="max-w-7xl mx-auto px-4">
+            <p id="txt-footer">نظام معايير السلامة والاستجابة للطوارئ البحرية - كود البضائع الخطرة IMDG</p>
+        </div>
+    </footer>
+
+    <!-- JavaScript Application Logic -->
+    <script>
+        // Language state: 'ar' or 'en'
+        let currentLang = 'ar';
+
+        // Core Default Hazmat Dataset (Bilingual & Standard Emergency Guidance)
+        const defaultHazmatData = [
+            {
+                un: "1203",
+                name_ar: "بنزين (وقود السيارات)",
+                name_en: "Gasoline / Motor Spirit",
+                hazard_class: "3",
+                subrisk: "سائل قابل للاشتعال بدرجة عالية",
+                subrisk_en: "Highly Flammable Liquid",
+                packing_group: "II",
+                ems: "F-E, S-E",
+                precautions_ar: "إبعاد كافة مصادر الاشتعال والشرر. يمنع التدخين منعاً باتاً. استخدام أدوات غير أحدث للشرر والتأريض الكهربائي للتفريغ الشحنات.",
+                precautions_en: "Keep away from heat, sparks, open flames, hot surfaces. No smoking. Use explosion-proof electrical equipment and non-sparking tools.",
+                firstaid_ar: "في حالة الاستنشاق: نقل المصاب للهواء الطلق. في حالة ملامسة الجلد: غسل الفوري بالماء والصابون لمدة 15 دقيقة. عند ملامسة العين: شطف بماء جاري. عدم إجبار المصاب على التقيؤ عند البلع.",
+                firstaid_en: "Inhalation: Remove person to fresh air. Skin Contact: Wash with plenty of soap and water for 15 mins. Eye Contact: Rinse cautiously with water. Ingestion: Do NOT induce vomiting.",
+                ppe_ar: "جهاز تنفس مستقل (SCBA)، قفازات مقاومة للمواد الكيميائية (Nitrile)، نظارات حماية سلامة ومئزر مضاد للاشتعال.",
+                ppe_en: "Self-contained breathing apparatus (SCBA), chemical-resistant gloves (Nitrile), safety goggles, antistatic protective clothing.",
+                spill_ar: "عزل منطقة التسرب فوراً. ردم وامتصاص السائل بالرمل أو التراب الجاف. منع دخول السائل للمجاري المائية أو البالوعات."
+            },
+            {
+                un: "1230",
+                name_ar: "ميثانول (كحول الميثيل)",
+                name_en: "Methanol / Methyl Alcohol",
+                hazard_class: "3 (6.1)",
+                subrisk: "سائل قابل للاشتعال + سمية حادة",
+                subrisk_en: "Flammable Liquid + Acute Toxicity",
+                packing_group: "II",
+                ems: "F-E, S-D",
+                precautions_ar: "سائل وبخار شديد الاشتعال وسام جداً عند الاستنشاق أو البلع. يجب توفير تهوية ممتازة وتجنب استنشاق البخار تماماً.",
+                precautions_en: "Highly flammable liquid and vapor. Toxic if swallowed, in contact with skin or if inhaled. Store in well-ventilated area.",
+                firstaid_ar: "في حالة الاستنشاق أو البلع: الاتصال الفوري بمركز السموم والطوارئ الطبية. إعطاء أكسجين إذا صعُب التنفس. غسل العيون والجلد بالماء الجاري بشكل فوري.",
+                firstaid_en: "If swallowed or inhaled: Immediately call a POISON CENTER or doctor. Provide oxygen if breathing is difficult. Wash skin/eyes thoroughly.",
+                ppe_ar: "بدلة حماية كيميائية كاملة، جهاز تنفس صناعي SCBA، قفازات بوثيل (Butyl Rubber) نظارات وواقي وجه.",
+                ppe_en: "Full chemical protective suit, SCBA respiratory protection, butyl rubber gloves, splash goggles and face shield.",
+                spill_ar: "إيقاف التسرب إذا كان ذلك بدون مخاطرة. رغوة مقاومة للكحول لإطفاء أو تغطية الانسكاب. منع وصوله للمجاري."
+            },
+            {
+                un: "1005",
+                name_ar: "أمونيا لا مائية (غاز نشادر)",
+                name_en: "Ammonia, Anhydrous",
+                hazard_class: "2.3 (8)",
+                subrisk: "غاز سام + كاوٍ للجلد",
+                subrisk_en: "Toxic Gas + Corrosive",
+                packing_group: "N/A",
+                ems: "F-C, S-U",
+                precautions_ar: "غاز تحت الضغط، يسبب حروقاً بالغة للجلد والعيون. تجنب النقل في الأماكن المغلقة. ارتداء حماية كاملة ضد الغازات السامة.",
+                precautions_en: "Contains gas under pressure; causes severe skin burns and eye damage. Toxic if inhaled. Avoid closed transport spaces.",
+                firstaid_ar: "إخلاء المصاب فوراً إلى مكان آمن به هواء نقي. شطف العيون بالماء لمدة لا تقل عن 20 دقيقة. غسل الجلد المصاب وتغطية الحروق بضمادات معقمة.",
+                firstaid_en: "Move victim to fresh air immediately. Flush eyes with water for at least 20 minutes. Wash skin burns and cover with sterile dressings.",
+                ppe_ar: "بدلة غازات كاملة محكمة الإغلاق (Gas-tight suit) مع جهاز تنفس أكسجين مستقل SCBA.",
+                ppe_en: "Fully encapsulating gas-tight suit with Self-Contained Breathing Apparatus (SCBA).",
+                spill_ar: "إخلاء المنطقة أسفل الريح. استخدام رذاذ الماء لتشتيت الأبخرة والغازات المتصاعدة (مع عدم توجيه الماء للمادة المتسربة مباشرة)."
+            },
+            {
+                un: "1017",
+                name_ar: "غاز الكلور",
+                name_en: "Chlorine Gas",
+                hazard_class: "2.3 (5.1, 8)",
+                subrisk: "غاز سام + مؤكسد + كاوٍ",
+                subrisk_en: "Toxic Gas + Oxidizer + Corrosive",
+                packing_group: "N/A",
+                ems: "F-C, S-U",
+                precautions_ar: "غاز كاسح وشداد السمية. يساعد على اشتعال المواد الأخرى. يلزم الحذر الشديد وعدم التواجد بالقرب من أي زيوت أو شحوم.",
+                precautions_en: "Fatal if inhaled. Causes severe skin burns and eye damage. May cause or intensify fire; oxidizer. Keep away from combustible materials.",
+                firstaid_ar: "نقل المصاب إلى الهواء الطلق فوراً مع إبقائه دافئاً وساكناً. إعطاء أكسجين طبي بواسطة فني مختص. لا تجرِ تنفساً صناعياً فم لفم.",
+                firstaid_en: "Remove to fresh air. Keep victim warm and quiet. Administer oxygen if trained. Do NOT use mouth-to-mouth resuscitation.",
+                ppe_ar: "بدلة حماية من المواد السامة عالية المستوى Level A، قفازات نيوبرين، أجهزة تنفس SCBA مثبتة.",
+                ppe_en: "Level A fully protective suit, neoprene gloves, level A respiratory self-contained breathing system.",
+                spill_ar: "عزل المنطقة لمسافة 250 إلى 500 متر في جميع الاتجاهات. رش رذاذ ماء لتقليل الأبخرة."
+            },
+            {
+                un: "1824",
+                name_ar: "هيدروكسيد الصودوم (محلول الصودا الكاوية)",
+                name_en: "Sodium Hydroxide Solution (Caustic Soda)",
+                hazard_class: "8",
+                subrisk: "مادة كاوية ومآكلة للفلزات",
+                subrisk_en: "Corrosive Substance",
+                packing_group: "II",
+                ems: "F-A, S-B",
+                precautions_ar: "تسبب حروق جلدية شديدة وتلف دائم للعيون. تآكل الألومنيوم والمعادن. يجب إضافة الصودا إلى الماء بحذر وليس العكس.",
+                precautions_en: "Causes severe skin burns and eye damage. Corrosive to metals. Always add product to water slowly with agitation.",
+                firstaid_ar: "الرش الفوري بمغسلة طوارئ بالماء لمدة 20 دقيقة على الأقل للعيون والجلد. إزالة الملابس الملوثة فوراً. العرض على الطبيب فوراً.",
+                firstaid_en: "Flush immediately with safety shower/eye wash for at least 20 minutes. Remove contaminated clothing immediately. Seek medical help.",
+                ppe_ar: "واقي وجه كامل + نظارات وقاية كيميائية، قفازات المطاط الطبيعي أو PVC، مئزر وبوت مقاوم للمواد الكاوية.",
+                ppe_en: "Full face shield with chemical goggles, PVC/Rubber gloves, alkali-resistant apron and boots.",
+                spill_ar: "احتوِ السائل المتسرب بمواد خاملة (مثل الرمل أو التراب). قم بمعادلة المادة بحذر شديد مع أحماض مخففة تحت إشراف متخصص."
+            },
+            {
+                un: "2031",
+                name_ar: "حمض النيتريك (تراكيز مختلفة)",
+                name_en: "Nitric Acid",
+                hazard_class: "8 (5.1)",
+                subrisk: "مادة كاوية + مؤكسدة",
+                subrisk_en: "Corrosive + Oxidizer",
+                packing_group: "I / II",
+                ems: "F-A, S-B",
+                precautions_ar: "حمض قوي ينبعث منه أبخرة سامة جداً (أكاسيد النيتروجين). يتفاعل بشدة مع المواد العضوية والزيوت مصدراً حرارة شديدة.",
+                precautions_en: "Causes severe burns. Toxic by inhalation. Strong oxidizer; contact with combustible material may cause fire.",
+                firstaid_ar: "الاستنشاق: نقل المصاب فوراً ومراقبة التنفس. الجلد/العين: غسل بماء جاري بكميات كبيرة لمدة 20 دقيقة. عدم التأخر في الاستجابة.",
+                firstaid_en: "Inhalation: Remove victim to fresh air. Skin/Eyes: Immediately flush with copious amounts of water for 20 mins. Get immediate medical help.",
+                ppe_ar: "بدلة حماية حمضية مضادة للتآكل، جهاز تنفس SCBA، قفازات ثقيلة من النيوبرين أو Viton.",
+                ppe_en: "Acid-resistant chemical suit, SCBA breathing apparatus, heavy Viton or Neoprene gloves.",
+                spill_ar: "تجنب ملامسة المادة للمواد القابلة للاشتعال كالأخشاب والقماش. استخدم رمل خامل أو بودرة جير لمعادلة الحمض بحذر."
+            },
+            {
+                un: "1044",
+                name_ar: "طفايات الحريق (تحتوي على غاز مضغوط)",
+                name_en: "Fire Extinguishers (Compressed Gas)",
+                hazard_class: "2.2",
+                subrisk: "غاز غير قابل للاشتعال وغير سام",
+                subrisk_en: "Non-Flammable, Non-Toxic Gas",
+                packing_group: "N/A",
+                ems: "F-C, S-V",
+                precautions_ar: "تحتوي على غازات تحت ضغط عالٍ. تجنب تعريض الأسطوانات للحرارة المباشرة أو الصدمات الميكانيكية لتفادي انفجارها.",
+                precautions_en: "Contains compressed gas. May explode if heated. Protect cylinders from physical damage and extreme heat.",
+                firstaid_ar: "في حالة انفجار أو تسرب الغاز وإصابة الشخص ببرودة عالية (عضة جليدية): غسل المنطقة بماء دافئ بطيء ولا تفرك المكان.",
+                firstaid_en: "In case of frostbite from rapid gas release: Flush affected area with lukewarm water. Do NOT rub affected area.",
+                ppe_ar: "قفازات واقية صناعية، نظارات سلامة لحماية العيون، أحذية سلامة بمقدمة صلبة.",
+                ppe_en: "Industrial protective work gloves, safety glasses with side shields, steel-toe boots.",
+                spill_ar: "في حالة التسرب: تهوية المكان جيداً. نقل الأسطوانات التالفة أو المسربة إلى مكان مفتوح إذا أمكن ذلك بأمان."
+            },
+            {
+                un: "1993",
+                name_ar: "سوائل قابلة للاشتعال، غير محددة باسم آخر (N.O.S)",
+                name_en: "Flammable Liquids, N.O.S.",
+                hazard_class: "3",
+                subrisk: "سائل قابل للاشتعال عام",
+                subrisk_en: "General Flammable Liquid",
+                packing_group: "I / II / III",
+                ems: "F-E, S-E",
+                precautions_ar: "قد تكون الأبخرة أثقل من الهواء وتنتشر على الأرض لمسافات. يجب تأريض جميع المعدات والتأكد من غياب الشرر.",
+                precautions_en: "Vapors may form explosive mixtures with air. Vapors may travel to source of ignition and flash back. Ground containers.",
+                firstaid_ar: " نقل المصاب للهواء النقي. غسل الجلد بالماء والصابون. في حالة ملع المادة: تقديم عناية طبية فورية وعدم تحفيز التقيؤ.",
+                firstaid_en: "Move victim to fresh air. Wash skin with soap and water. If swallowed, seek immediate medical attention. Do NOT induce vomiting.",
+                ppe_ar: "نظارات حماية، قفازات مقاومات للمذيبات العضوية، ملابس قطنية مضادة للكهرباء الساكنة.",
+                ppe_en: "Safety goggles, solvent-resistant gloves, anti-static cotton work clothing.",
+                spill_ar: "إبعاد كل مصادر الشرر. امتصاص السائل بمادة مضادة للاشتعال كVermiculite أو التراب الجاف."
+            }
+        ];
+
+        // Active dataset (starts with default, updated via CSV/Excel upload)
+        let hazmatDatabase = [...defaultHazmatData];
+        let activeRecord = hazmatDatabase[0];
+
+        // Initialize UI on window load
+        window.onload = function() {
+            renderPresetChips();
+            renderHazmatList();
+            displayRecord(hazmatDatabase[0]);
+            updateLanguageUI();
+        };
+
+        // Render Quick Selection Chips
+        function renderPresetChips() {
+            const container = document.getElementById('preset-chips');
+            container.innerHTML = '';
+            
+            hazmatDatabase.slice(0, 6).forEach(item => {
+                const chip = document.createElement('button');
+                chip.className = "px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-sky-600/30 hover:border-sky-500/50 text-xs text-slate-300 border border-slate-700 transition font-mono flex items-center gap-1.5";
+                chip.onclick = () => selectRecordByUN(item.un);
+                chip.innerHTML = `<span class="text-sky-400 font-bold">UN ${item.un}</span> <span>${currentLang === 'ar' ? item.name_ar : item.name_en}</span>`;
+                container.appendChild(chip);
+            });
+        }
+
+        // Render Database Records in Right Sidebar
+        function renderHazmatList(filteredData = null) {
+            const listContainer = document.getElementById('hazmat-list');
+            const dataToRender = filteredData || hazmatDatabase;
+            
+            document.getElementById('records-count').textContent = `${dataToRender.length} ${currentLang === 'ar' ? 'مواد' : 'items'}`;
+            listContainer.innerHTML = '';
+
+            if (dataToRender.length === 0) {
+                listContainer.innerHTML = `
+                    <div class="p-6 text-center text-slate-500 text-xs">
+                        <i class="fa-solid fa-folder-open text-2xl mb-2 block"></i>
+                        ${currentLang === 'ar' ? 'لم يتم العثور على نتائج مطابقة' : 'No matching records found'}
+                    </div>
+                `;
+                return;
+            }
+
+            dataToRender.forEach(item => {
+                const isSelected = activeRecord && activeRecord.un === item.un;
+                const card = document.createElement('div');
+                card.className = `p-3 rounded-xl border transition cursor-pointer flex items-start justify-between gap-2 ${
+                    isSelected 
+                    ? 'bg-sky-950/40 border-sky-500 shadow-md shadow-sky-500/10' 
+                    : 'bg-slate-950/50 border-slate-800 hover:border-slate-700 hover:bg-slate-800/40'
+                }`;
+                card.onclick = () => displayRecord(item);
+
+                card.innerHTML = `
+                    <div class="space-y-0.5">
+                        <div class="flex items-center gap-2">
+                            <span class="font-mono text-xs font-black text-sky-400 bg-sky-950 px-1.5 py-0.5 rounded border border-sky-800/50">
+                                UN ${item.un}
+                            </span>
+                            <span class="text-xs font-semibold text-slate-200 line-clamp-1">
+                                ${currentLang === 'ar' ? item.name_ar : item.name_en}
+                            </span>
+                        </div>
+                        <p class="text-[11px] text-slate-400 line-clamp-1">
+                            ${currentLang === 'ar' ? (item.subrisk || '') : (item.subrisk_en || '')}
+                        </p>
+                    </div>
+                    <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700 whitespace-nowrap">
+                        Cl. ${item.hazard_class}
+                    </span>
+                `;
+                listContainer.appendChild(card);
+            });
+        }
+
+        // Display Selected Record in Detailed Card
+        function displayRecord(record) {
+            if (!record) return;
+            activeRecord = record;
+
+            document.getElementById('card-un').textContent = `UN ${record.un}`;
+            document.getElementById('card-class-badge').textContent = `${currentLang === 'ar' ? 'فئة الخطر' : 'Class'} ${record.hazard_class}`;
+            
+            // Name & Sub-risk
+            document.getElementById('card-name').textContent = currentLang === 'ar' ? (record.name_ar || record.name_en) : (record.name_en || record.name_ar);
+            document.getElementById('card-subrisk').textContent = currentLang === 'ar' ? (record.subrisk || record.subrisk_en || '') : (record.subrisk_en || record.subrisk || '');
+
+            // Sections
+            document.getElementById('card-precautions').textContent = currentLang === 'ar' ? (record.precautions_ar || record.precautions_en) : (record.precautions_en || record.precautions_ar);
+            document.getElementById('card-firstaid').textContent = currentLang === 'ar' ? (record.firstaid_ar || record.firstaid_en) : (record.firstaid_en || record.firstaid_ar);
+            document.getElementById('card-ppe').textContent = currentLang === 'ar' ? (record.ppe_ar || record.ppe_en) : (record.ppe_en || record.ppe_ar);
+            document.getElementById('card-spill').textContent = currentLang === 'ar' ? (record.spill_ar || record.spill_en || record.precautions_ar) : (record.spill_en || record.spill_ar || record.precautions_en);
+
+            // Technical details
+            document.getElementById('card-pg').textContent = record.packing_group || 'N/A';
+            document.getElementById('card-ems').textContent = record.ems || 'N/A';
+
+            // Re-render list to highlight active item
+            renderHazmatList();
+        }
+
+        // Handle Real-time Search Input
+        function handleSearch() {
+            const query = document.getElementById('search-input').value.trim().toLowerCase();
+            const clearBtn = document.getElementById('clear-btn');
+
+            if (query.length > 0) {
+                clearBtn.classList.remove('hidden');
+            } else {
+                clearBtn.classList.add('hidden');
+                renderHazmatList();
+                return;
+            }
+
+            const results = hazmatDatabase.filter(item => {
+                const unMatch = item.un.toLowerCase().includes(query);
+                const nameArMatch = item.name_ar && item.name_ar.toLowerCase().includes(query);
+                const nameEnMatch = item.name_en && item.name_en.toLowerCase().includes(query);
+                const classMatch = item.hazard_class && item.hazard_class.toLowerCase().includes(query);
+                return unMatch || nameArMatch || nameEnMatch || classMatch;
+            });
+
+            renderHazmatList(results);
+
+            // Automatically select first match if found
+            if (results.length > 0) {
+                displayRecord(results[0]);
+            }
+        }
+
+        function executeSearch() {
+            handleSearch();
+        }
+
+        function clearSearch() {
+            document.getElementById('search-input').value = '';
+            document.getElementById('clear-btn').classList.add('hidden');
+            renderHazmatList();
+            if (hazmatDatabase.length > 0) {
+                displayRecord(hazmatDatabase[0]);
+            }
+        }
+
+        function selectRecordByUN(unCode) {
+            const item = hazmatDatabase.find(r => r.un === unCode);
+            if (item) {
+                document.getElementById('search-input').value = unCode;
+                document.getElementById('clear-btn').classList.remove('hidden');
+                displayRecord(item);
+            }
+        }
+
+        // Handle Excel / CSV File Upload
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const fileName = file.name.toLowerCase();
+
+            if (fileName.endsWith('.csv')) {
+                Papa.parse(file, {
+                    header: true,
+                    skipEmptyLines: true,
+                    complete: function(results) {
+                        processUploadedRows(results.data);
+                    }
+                });
+            } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, {type: 'array'});
+                    const firstSheet = workbook.SheetNames[0];
+                    const jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet]);
+                    processUploadedRows(jsonData);
+                };
+                reader.readAsArrayBuffer(file);
+            }
+        }
+
+        // Process imported spreadsheet rows into internal standard format
+        function processUploadedRows(rows) {
+            if (!rows || rows.length === 0) {
+                alert(currentLang === 'ar' ? 'الملف فارغ أو غير متوافق!' : 'Uploaded file is empty or invalid!');
+                return;
+            }
+
+            const parsedRecords = rows.map((row, index) => {
+                // Flexible keys check
+                return {
+                    un: String(row.UN || row.un || row['UN Number'] || row['رقم_الأمم_المتحدة'] || (1000 + index)),
+                    name_ar: row.Name_AR || row.name_ar || row['الاسم_بالعربي'] || row.Name || row.name || "مادة غير معرفة",
+                    name_en: row.Name_EN || row.name_en || row['الاسم_بالإنجليزي'] || row.Name || row.name || "Chemical Substance",
+                    hazard_class: String(row.Class || row.hazard_class || row['فئة_الخطر'] || "9"),
+                    subrisk: row.Subrisk_AR || row.subrisk || row['مخاطر_فرعية'] || "",
+                    subrisk_en: row.Subrisk_EN || row.subrisk_en || "",
+                    packing_group: row.PG || row.packing_group || row['مجموعة_التعبئة'] || "II",
+                    ems: row.EmS || row.ems || "F-A, S-A",
+                    precautions_ar: row.Precautions_AR || row.precautions_ar || row['الوقاية_والتفاعل'] || row.precautions || "اتبع إجراءات السلامة القياسية للمواد الخطرة.",
+                    precautions_en: row.Precautions_EN || row.precautions_en || "Follow standard hazmat safety protocols.",
+                    firstaid_ar: row.FirstAid_AR || row.firstaid_ar || row['الإسعافات_الأولية'] || row.firstaid || "اتصل بالطوارئ فوراً واغسل المكان المتأثر بالماء.",
+                    firstaid_en: row.FirstAid_EN || row.firstaid_en || "Seek medical help immediately. Wash affected area.",
+                    ppe_ar: row.PPE_AR || row.ppe_ar || row['معدات_الوقاية'] || row.ppe || "قفازات كيميائية، نظارات سلامة، وجهاز تنفس.",
+                    ppe_en: row.PPE_EN || row.ppe_en || "Chemical gloves, goggles, respirator.",
+                    spill_ar: row.Spill_AR || row.spill_ar || row['التسرب'] || row.spill || "اعزل المنطقة وقم باحتواء السائل بالرمل.",
+                    spill_en: row.Spill_EN || row.spill_en || "Isolate area and absorb with sand."
+                };
+            });
+
+            hazmatDatabase = parsedRecords;
+            renderPresetChips();
+            renderHazmatList();
+            displayRecord(hazmatDatabase[0]);
+
+            alert(currentLang === 'ar' 
+                ? `تم استيراد ${parsedRecords.length} مادة خطرة بنجاح!` 
+                : `Successfully imported ${parsedRecords.length} records!`);
+        }
+
+        // Reset to initial built-in dataset
+        function resetToDefaultData() {
+            hazmatDatabase = [...defaultHazmatData];
+            renderPresetChips();
+            renderHazmatList();
+            displayRecord(hazmatDatabase[0]);
+            clearSearch();
+        }
+
+        // Export active single record to CSV
+        function exportCurrentToCSV() {
+            if (!activeRecord) return;
+            const data = [activeRecord];
+            downloadCSV(data, `Hazmat_UN${activeRecord.un}_Safety_Card.csv`);
+        }
+
+        // Export entire dataset to CSV
+        function exportAllToCSV() {
+            downloadCSV(hazmatDatabase, `Full_IMDG_Hazmat_Database.csv`);
+        }
+
+        // CSV Download Helper
+        function downloadCSV(dataArray, filename) {
+            const csv = Papa.unparse(dataArray);
+            const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", filename);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // Toggle Language (Arabic / English)
+        function toggleLanguage() {
+            currentLang = currentLang === 'ar' ? 'en' : 'ar';
+            document.documentElement.dir = currentLang === 'ar' ? 'rtl' : 'ltr';
+            document.documentElement.lang = currentLang;
+
+            updateLanguageUI();
+            renderPresetChips();
+            renderHazmatList();
+            if (activeRecord) {
+                displayRecord(activeRecord);
+            }
+        }
+
+        // Update Static Text Elements according to language
+        function updateLanguageUI() {
+            const isAr = currentLang === 'ar';
+
+            document.getElementById('lang-btn-text').textContent = isAr ? 'English' : 'عربي';
+            document.getElementById('txt-app-title').textContent = isAr ? 'دليل المواد الخطرة (IMDG Code / UN)' : 'IMDG Hazmat & Safety Emergency Dashboard';
+            document.getElementById('txt-app-subtitle').textContent = isAr ? 'نظام الطوارئ والوقاية والاستجابة للحوادث البحرية' : 'International Maritime Dangerous Goods Response System';
+            document.getElementById('txt-upload-btn').textContent = isAr ? 'استيراد شيت (Excel/CSV)' : 'Import File (Excel/CSV)';
+            
+            document.getElementById('lbl-search').textContent = isAr ? 'ابحث برقم الأمم المتحدة (UN Number) أو اسم المادة الكيميائية:' : 'Search by UN Number or Chemical Name:';
+            document.getElementById('search-input').placeholder = isAr ? 'مثال: 1203, 1230, Gasoline, Methanol...' : 'e.g., 1203, 1230, Gasoline, Methanol...';
+            document.getElementById('btn-search-text').textContent = isAr ? 'بحث مفصل' : 'Search';
+            document.getElementById('txt-quick-search').textContent = isAr ? 'بحث سريع:' : 'Quick Select:';
+
+            document.getElementById('hdr-precautions').textContent = isAr ? 'طرق التفاعل والوقاية من الحريق' : 'Reactivity & Fire Precautions';
+            document.getElementById('hdr-firstaid').textContent = isAr ? 'الإسعافات الأولية وطريقة التعامل مع الإصابات' : 'First Aid & Injury Management';
+            document.getElementById('hdr-ppe').textContent = isAr ? 'معدات الوقاية الشخصية المطلوب ارتداؤها (PPE)' : 'Personal Protective Equipment (PPE)';
+            document.getElementById('hdr-spill').textContent = isAr ? 'طريقة التعامل مع تسرب المادة (Spill Handling)' : 'Emergency Spill & Leak Handling';
+
+            document.getElementById('lbl-pg').textContent = isAr ? 'مجموعة التعبئة (Packing Group):' : 'Packing Group (PG):';
+            document.getElementById('lbl-emg-guide').textContent = isAr ? 'دليل الطوارئ (EmS/ERG):' : 'Emergency Guide (EmS):';
+
+            document.getElementById('txt-records-title').textContent = isAr ? 'جدول المواد المتاحة' : 'Available Substances';
+            document.getElementById('btn-export-all').textContent = isAr ? 'تصدير جميع البيانات لملف CSV' : 'Export Full Database to CSV';
+            document.getElementById('txt-footer').textContent = isAr ? 'نظام معايير السلامة والاستجابة للطوارئ البحرية - كود البضائع الخطرة IMDG' : 'Maritime Safety Standards & Emergency Response System - IMDG Code';
+        }
+    </script>
+</body>
+</html>
